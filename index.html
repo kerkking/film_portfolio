@@ -139,7 +139,7 @@
   .play svg { width: 22px; margin-left: 4px; }
   .film-meta { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
   .film-meta span + span::before { content: "·"; margin-right: 18px; color: var(--gold); }
-  .film h3 { font: italic 300 48px/1.02 var(--serif); letter-spacing: -.01em; margin-bottom: 22px; }
+  .film h3 { font: italic 300 clamp(34px, 4.4vw, 60px)/1.02 var(--serif); text-wrap: balance; letter-spacing: -.01em; margin-bottom: 22px; }
   .film p { color: var(--ink-dim); max-width: 44ch; }
   .film .watch {
     margin-top: 28px; display: inline-flex; align-items: center; gap: 12px;
@@ -149,30 +149,13 @@
   .film .watch i { width: 36px; height: 1px; background: var(--gold); transition: width .5s var(--ease); }
   .film .watch:hover i { width: 64px; }
 
-  /* ---------- about (Pretext flow) ---------- */
+  /* ---------- about ---------- */
   #about { background: var(--bg-2); border-block: 1px solid var(--line); }
   .about-grid { display: grid; grid-template-columns: 1fr 3fr; gap: clamp(28px, 5vw, 80px); }
   @media (max-width: 860px) { .about-grid { grid-template-columns: 1fr; } }
   .about-side h2 { font: 300 clamp(44px, 6vw, 88px)/.95 var(--serif); margin: 18px 0 28px; }
   .about-side h2 em { color: var(--gold); }
-  .hud { font: 400 10px/1.7 var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); }
-  .hud b { color: var(--gold); font-weight: 400; }
-
-  .flow { position: relative; touch-action: pan-y; cursor: none; }
-  .flow .lines { position: absolute; inset: 0; }
-  .flow .ln {
-    position: absolute; left: 0; top: 0; white-space: pre; will-change: transform;
-    font-family: var(--serif); font-weight: 400; color: var(--ink);
-  }
-  .orb {
-    position: absolute; left: 0; top: 0; border-radius: 50%; pointer-events: none; will-change: transform;
-    border: 1px solid rgba(201,164,106,.7);
-  }
-  .orb::after {
-    content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px;
-    border-radius: 50%; background: var(--gold);
-  }
-  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .bio { font: 400 clamp(19px, 1.9vw, 26px)/1.55 var(--serif); color: var(--ink); max-width: 38em; }
 
   /* ---------- contact ---------- */
   #contact { text-align: center; padding-bottom: 60px; }
@@ -255,15 +238,8 @@
       <div class="about-side reveal">
         <span class="eyebrow">About</span>
         <h2>Hello, I&rsquo;m <em>Kerk.</em></h2>
-        <p class="hud">Move your cursor through the text &rarr;<br>
-          Live text layout by <b>Pretext</b><br>
-          <b id="hud-ms">&mdash;</b> ms / frame &middot; <b>0</b> DOM reflows</p>
       </div>
-      <div class="flow reveal" id="flow">
-        <p class="sr-only" id="bio-text"></p>
-        <div class="lines" aria-hidden="true"></div>
-        <div class="orb" aria-hidden="true"></div>
-      </div>
+      <p class="bio reveal" id="bio"></p>
     </div>
   </section>
 
@@ -283,7 +259,6 @@
 
 <footer>
   <span class="eyebrow">&copy; <span id="year"></span> Kerkking Productions &mdash; Wedding &amp; Travel Films</span>
-  <span class="eyebrow">Text layout powered by Pretext</span>
 </footer>
 
 <dialog id="lightbox">
@@ -292,10 +267,6 @@
 </dialog>
 
 <script type="module">
-  import {
-    prepare, prepareWithSegments, layout, layoutNextLine, measureLineStats,
-  } from 'https://cdn.jsdelivr.net/npm/@chenglou/pretext@1.0.0/dist/layout.js';
-
   /* =========================================================
      EDIT ME — your links, bio and films
      youtubeId: the part after "watch?v=" in a YouTube URL
@@ -328,7 +299,7 @@
 
   document.getElementById('year').textContent = new Date().getFullYear();
   document.querySelectorAll('[data-link]').forEach(a => a.href = CONFIG[a.dataset.link]);
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.getElementById('bio').textContent = CONFIG.bio;
 
   /* ---------- films ---------- */
   const list = document.getElementById('film-list');
@@ -374,146 +345,6 @@
     if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
   }), { threshold: .15 });
   document.querySelectorAll('.reveal').forEach(el => io.observe(el));
-
-  // Pretext measures with canvas, so the webfonts must be loaded first.
-  await Promise.all([
-    document.fonts.load('400 20px "Cormorant Garamond"'),
-    document.fonts.load('italic 300 48px "Cormorant Garamond"'),
-  ]);
-
-  /* =========================================================
-     PRETEXT #1 — balanced film titles
-     Binary-search the narrowest width that keeps the same line
-     count, so titles break evenly instead of leaving an orphan.
-     Pure arithmetic: no DOM measurement in the loop.
-     ========================================================= */
-  const titles = [...list.querySelectorAll('h3')].map(h => ({ h, prepared: null, size: 0 }));
-  function balanceTitles(colWidth) {
-    const size = Math.round(Math.min(64, Math.max(34, colWidth * 0.11)));
-    for (const t of titles) {
-      if (t.size !== size) { t.prepared = prepare(t.h.textContent, `italic 300 ${size}px "Cormorant Garamond"`); t.size = size; }
-      const target = measureLineStats(t.prepared, colWidth).lineCount;
-      let lo = colWidth * 0.3, hi = colWidth;
-      for (let k = 0; k < 14; k++) {
-        const mid = (lo + hi) / 2;
-        if (measureLineStats(t.prepared, mid).lineCount <= target) hi = mid; else lo = mid;
-      }
-      t.h.style.fontSize = size + 'px';
-      t.h.style.maxWidth = Math.min(colWidth, Math.ceil(hi) + 1) + 'px';
-    }
-  }
-  new ResizeObserver(([e]) => balanceTitles(e.contentRect.width))
-    .observe(list.querySelector('.film-body'));
-
-  /* =========================================================
-     PRETEXT #2 — bio text flowing around a moving orb
-     Every frame, each row's free width is computed from the
-     circle's chord and Pretext's layoutNextLine() fills it.
-     Lines are absolutely positioned spans; nothing is read
-     back from the DOM, so there's no reflow thrash.
-     ========================================================= */
-  const flow = document.getElementById('flow');
-  const linesEl = flow.querySelector('.lines');
-  const orb = flow.querySelector('.orb');
-  const hudMs = document.getElementById('hud-ms');
-  document.getElementById('bio-text').textContent = CONFIG.bio;
-
-  let W = 0, H = 0, FS = 22, LH = 36, R = 90, prepared = null;
-  let cx = 0, cy = 0, tx = 0, ty = 0, pointerInside = false, visible = false;
-  const pool = [];
-
-  function setup(width) {
-    if (width === W) return; // our own height change re-triggers the observer
-    W = width;
-    FS = W < 520 ? 19 : W < 820 ? 22 : 26;
-    LH = Math.round(FS * 1.55);
-    R = W < 520 ? 16 : 22;
-    prepared = prepareWithSegments(CONFIG.bio, `400 ${FS}px "Cormorant Garamond"`);
-    H = layout(prepared, W, LH).height + R * 2 + LH * 2; // stable box: room for the orb's detour
-    flow.style.height = H + 'px';
-    orb.style.width = orb.style.height = R * 2 + 'px';
-    pool.forEach(s => s.style.fontSize = FS + 'px');
-    if (!cx) { cx = tx = W * 0.62; cy = ty = H * 0.42; }
-    cx = Math.min(cx, W); tx = Math.min(tx, W);
-    render();
-  }
-
-  function span(i) {
-    if (!pool[i]) {
-      const s = document.createElement('span');
-      s.className = 'ln';
-      s.style.fontSize = FS + 'px';
-      linesEl.appendChild(s);
-      pool[i] = s;
-    }
-    return pool[i];
-  }
-
-  function render() {
-    const t0 = performance.now();
-    const pad = 14, minSlot = 48, rr = R + pad;
-    let cursor = { segmentIndex: 0, graphemeIndex: 0 };
-    let y = 0, n = 0, done = false;
-    while (!done && y < H) {
-      // horizontal band the orb blocks on this row
-      const dy = cy < y ? y - cy : cy > y + LH ? cy - y - LH : 0;
-      const slots = [];
-      if (dy >= rr) slots.push([0, W]);
-      else {
-        const hc = Math.sqrt(rr * rr - dy * dy);
-        if (cx - hc > minSlot) slots.push([0, cx - hc]);
-        if (W - (cx + hc) > minSlot) slots.push([cx + hc, W]);
-      }
-      for (const [x0, x1] of slots) {
-        const line = layoutNextLine(prepared, x1 - x0, cursor);
-        if (!line) { done = true; break; }
-        const s = span(n++);
-        if (s.textContent !== line.text) s.textContent = line.text;
-        s.style.transform = `translate(${x0}px, ${y}px)`;
-        s.style.display = '';
-        cursor = line.end;
-      }
-      y += LH;
-    }
-    for (let i = n; i < pool.length; i++) pool[i].style.display = 'none';
-    orb.style.transform = `translate(${cx - R}px, ${cy - R}px)`;
-    return performance.now() - t0;
-  }
-
-  // pointer: cache the box on enter so pointermove never reads layout
-  let box = null;
-  flow.addEventListener('pointerenter', () => { box = flow.getBoundingClientRect(); pointerInside = true; });
-  flow.addEventListener('pointerleave', () => { pointerInside = false; });
-  flow.addEventListener('pointermove', e => {
-    if (!box) return;
-    tx = e.clientX - box.left; ty = e.clientY - box.top;
-  });
-  addEventListener('scroll', () => { box = pointerInside ? flow.getBoundingClientRect() : null; }, { passive: true });
-
-  let msAvg = 0, lastHud = 0;
-  function tick(now) {
-    if (visible) {
-      if (!pointerInside && !reduceMotion) {
-        // idle: drift on a slow Lissajous path
-        const t = now / 1000;
-        tx = W * (0.5 + 0.38 * Math.sin(t * 0.23));
-        ty = H * (0.45 + 0.32 * Math.sin(t * 0.31 + 1));
-      }
-      tx = Math.max(R * 0.4, Math.min(W - R * 0.4, tx));
-      ty = Math.max(R, Math.min(H - R, ty));
-      const k = pointerInside ? 0.14 : 0.05;
-      if (Math.abs(tx - cx) + Math.abs(ty - cy) > 0.1) {
-        cx += (tx - cx) * k; cy += (ty - cy) * k;
-        msAvg = msAvg * 0.9 + render() * 0.1;
-      }
-      if (now - lastHud > 300) { hudMs.textContent = msAvg.toFixed(2); lastHud = now; }
-    }
-    requestAnimationFrame(tick);
-  }
-
-  new IntersectionObserver(([e]) => { visible = e.isIntersecting; }).observe(flow);
-  new ResizeObserver(([e]) => setup(e.contentRect.width)).observe(flow);
-  requestAnimationFrame(tick);
 </script>
 </body>
 </html>
